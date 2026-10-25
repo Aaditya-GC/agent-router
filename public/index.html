@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Router</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a0b;
+    --panel: #111113;
+    --inset: #0c0c0e;
+    --border: #202024;
+    --border-soft: #17171b;
+    --text: #ededf0;
+    --muted: #8f8f96;
+    --faint: #55555c;
+    --green: #4ade80;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+  }
+  ::selection { background: #2b2b31; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 20; height: 54px; display: flex; align-items: center;
+    gap: 12px; padding: 0 20px; background: rgba(10,10,11,.88);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .mark { width: 22px; height: 22px; flex: none; display: block; }
+  .brand { font-size: 13.5px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+  .brand span { color: var(--faint); font-weight: 450; }
+  .spacer { flex: 1; }
+  .upstream { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+  .live { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .rkey {
+    background: var(--inset); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 9px; font-size: 12px; width: 170px; outline: none;
+  }
+  .rkey:focus { border-color: #3a3a42; }
+  .rkey::placeholder { color: var(--faint); }
+  .rkey:disabled { opacity: .55; }
+
+  .btn {
+    appearance: none; border: 1px solid var(--border); background: transparent; color: var(--text);
+    border-radius: 6px; padding: 6px 12px; font-size: 12.5px; font-weight: 550; cursor: pointer;
+    font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { background: #1a1a1f; }
+  .btn:active { transform: translateY(1px); }
+  .btn.solid { background: #f4f4f5; border-color: #f4f4f5; color: #0a0a0b; }
+  .btn.solid:hover { background: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { background: rgba(248,113,113,.09); border-color: rgba(248,113,113,.35); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .btn.sm { padding: 4px 9px; font-size: 12px; border-color: transparent; color: var(--muted); }
+  .btn.sm:hover { color: var(--text); background: #1c1c21; border-color: var(--border); }
+  .btn.sm.danger:hover { color: var(--red); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 22px 20px 70px; }
+  section { margin-bottom: 26px; }
+  .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px 2px; }
+  .sec-head h2 {
+    margin: 0; font-size: 11px; font-weight: 650; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .sec-head .count { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .panel { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 10px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 960px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* alerts */
+  .alerts { display: grid; gap: 8px; margin-bottom: 18px; }
+  .alert {
+    border-radius: 8px; padding: 10px 14px; font-size: 12.5px;
+    border: 1px solid var(--border); border-left-width: 3px; background: var(--panel);
+  }
+  .alert.warn { border-left-color: var(--amber); background: rgba(251,191,36,.05); border-color: rgba(251,191,36,.3); }
+  .alert.err { border-left-color: var(--red); background: rgba(248,113,113,.05); border-color: rgba(248,113,113,.3); }
+  .alert strong { margin-right: 8px; }
+  .alert code { font-family: var(--mono); font-size: 11.5px; }
+
+  /* stat cards */
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  @media (max-width: 1100px) { .stats { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 10px; padding: 13px 14px 12px; }
+  .stat .label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .stat .num { font-size: 22px; font-weight: 650; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .num small { font-size: 13px; color: var(--faint); font-weight: 500; }
+  .stat .sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .seg { display: flex; background: var(--inset); border: 1px solid var(--border); border-radius: 7px; padding: 2px; gap: 2px; margin-top: 7px; }
+  .seg button {
+    flex: 1; border: 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 550;
+    font-family: inherit; padding: 4px 3px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: #f4f4f5; color: #0a0a0b; }
+
+  .field {
+    background: var(--inset); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 9px; font-size: 12.5px; outline: none; width: 100%; font-family: inherit;
+  }
+  .field.mono { font-family: var(--mono); font-size: 12px; }
+  .field:focus { border-color: #3d3d46; }
+  .field::placeholder { color: var(--faint); }
+  .addbar { display: grid; grid-template-columns: 190px 1fr auto; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-soft); }
+  @media (max-width: 700px) { .addbar { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--faint); padding: 8px 12px; border-bottom: 1px solid var(--border-soft); white-space: nowrap;
+  }
+  th.r, td.r { text-align: right; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: rgba(255,255,255,.014); }
+  .alias { font-weight: 600; font-size: 13px; }
+  .keyline { display: flex; align-items: center; gap: 6px; margin-top: 3px; max-width: 330px; }
+  .keyval { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .iconbtn { border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 3px; border-radius: 4px; display: inline-flex; line-height: 0; flex: none; }
+  .iconbtn:hover { color: var(--text); background: #222228; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 12.5px; white-space: nowrap; }
+  .status i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .status small { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .st-ok i { background: var(--green); } .st-warn i { background: var(--amber); }
+  .st-err i { background: var(--red); } .st-off i { background: #3d3d44; }
+  .st-off { color: var(--faint); }
+  .nums { font-variant-numeric: tabular-nums; font-size: 12.5px; white-space: nowrap; }
+  .nums .bad { color: var(--red); }
+  .nums .dim, .sub2 { color: var(--faint); }
+  .sub2 { font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sub2.mono { font-family: var(--mono); }
+  .meter { height: 2px; background: #222228; border-radius: 2px; margin-top: 5px; width: 90px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--red); border-radius: 2px; }
+  .meter.ok i { background: var(--green); }
+  .meter.warn i { background: var(--amber); }
+  .actions { display: flex; align-items: center; gap: 2px; justify-content: flex-end; }
+  .empty td { text-align: center; padding: 26px 12px; color: var(--faint); font-size: 12.5px; }
+  .empty code { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+  .switch { position: relative; display: inline-block; width: 30px; height: 17px; flex: none; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .tr { position: absolute; inset: 0; background: #2a2a31; border-radius: 99px; transition: background .15s; }
+  .switch .tr::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; background: #8f8f96; border-radius: 50%; transition: transform .15s, background .15s; }
+  .switch input:checked + .tr { background: rgba(74,222,128,.28); }
+  .switch input:checked + .tr::after { transform: translateX(13px); background: var(--green); }
+
+  .toggle-inline { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .toggle-inline:hover { color: var(--text); }
+  .badge { display: inline-block; font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); }
+  .badge.free { color: var(--green); border-color: rgba(74,222,128,.4); }
+  .badge.cache { color: var(--amber); border-color: rgba(251,191,36,.4); }
+  .pad { padding: 12px 14px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .filterbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; }
+  .filterbar .field { width: 200px; }
+  .scroll { max-height: 340px; overflow: auto; }
+  pre.snippet {
+    margin: 0; background: var(--inset); border: 1px solid var(--border-soft); border-radius: 8px;
+    padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; overflow: auto; max-height: 300px; color: #c9c9d1;
+  }
+  #logs { font-family: var(--mono); font-size: 11.5px; line-height: 1.7; max-height: 300px; overflow: auto; }
+  #logs .ln { display: flex; gap: 9px; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.025); }
+  #logs .ln:last-child { border-bottom: 0; }
+  #logs time { color: var(--faint); flex: none; }
+  #logs .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 6px; flex: none; }
+  #logs .msg { color: #b9b9c2; word-break: break-word; }
+
+  footer { border-top: 1px solid var(--border-soft); padding: 16px 20px 30px; }
+  footer .in { max-width: 1200px; margin: 0 auto; font-size: 12px; color: var(--faint); display: flex; gap: 8px; flex-wrap: wrap; }
+  footer code { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  #toast { position: fixed; right: 18px; bottom: 18px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: #161618; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 12.5px; max-width: 360px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  .toast.err { border-color: rgba(248,113,113,.4); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="1.5" y="1.5" width="21" height="21" rx="6" stroke="#f4f4f5" stroke-width="1.6"/>
+    <path d="M7 9.5h7.5M7 14.5h7.5M12.5 6.8l2.7 2.7-2.7 2.7M12.5 11.8l2.7 2.7-2.7 2.7" stroke="#f4f4f5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="brand">Agent Router <span>/ token harbor pool</span></div>
+  <div class="spacer"></div>
+  <div class="live" id="live"><i></i>live</div>
+  <div class="upstream" id="upstream">…</div>
+  <input class="rkey" id="routerKey" type="password" placeholder="router key" autocomplete="off" spellcheck="false" />
+  <button class="btn" id="refresh">Refresh</button>
+</header>
+
+<main>
+  <div class="alerts" id="alerts" hidden></div>
+
+  <section>
+    <div class="stats">
+      <div class="stat">
+        <div class="label">Keys ready</div>
+        <div class="num" id="stKeys">—</div>
+        <div class="sub" id="stKeysSub">…</div>
+      </div>
+      <div class="stat">
+        <div class="label">Requests</div>
+        <div class="num" id="stReq">—</div>
+        <div class="sub" id="stReqSub">…</div>
+      </div>
+      <div class="stat">
+        <div class="label">Tokens</div>
+        <div class="num" id="stTok">—</div>
+        <div class="sub" id="stTokSub">…</div>
+      </div>
+      <div class="stat">
+        <div class="label">Cache hit</div>
+        <div class="num" id="stCache">—</div>
+        <div class="sub" id="stCacheSub">…</div>
+      </div>
+      <div class="stat">
+        <div class="label">Est. cost</div>
+        <div class="num" id="stCost">—</div>
+        <div class="sub" id="stCostSub">…</div>
+      </div>
+      <div class="stat">
+        <div class="label">Rotation</div>
+        <div class="seg" id="seg">
+          <button data-s="round-robin" title="Spread load across healthy keys">round-robin</button>
+          <button data-s="failover" title="Stick to the first healthy key">failover</button>
+          <button data-s="least-errors" title="Prefer keys with the fewest errors">least-errors</button>
+        </div>
+        <div class="sub" id="stStratSub">…</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="two-col">
+    <div>
+      <div class="sec-head">
+        <h2>Free models</h2><span class="count" id="freeCount"></span>
+        <div class="spacer"></div>
+        <button class="btn sm" id="probeFree">Probe free</button>
+      </div>
+      <div class="panel"><div class="scroll">
+        <table>
+          <thead><tr><th>Model</th><th>Context</th><th class="r">Traffic</th><th style="text-align:right">Probe</th></tr></thead>
+          <tbody id="freeModels"></tbody>
+        </table>
+      </div></div>
+    </div>
+
+    <div>
+      <div class="sec-head">
+        <h2>Allowance</h2><span class="count">requests / day</span>
+        <div class="spacer"></div>
+        <input class="field" id="allowTarget" type="number" min="1" style="width:90px" title="target requests per key per day" />
+        <button class="btn sm" id="saveAllow">Save</button>
+      </div>
+      <div class="panel"><div class="scroll">
+        <table>
+          <thead><tr><th>Key</th><th>Today</th><th class="r">Last 7d</th></tr></thead>
+          <tbody id="allowance"></tbody>
+        </table>
+      </div></div>
+      <p class="hint" style="margin:8px 2px 0">Harbor's free tier is a rolling 7-day request allowance (~150/day, more with balance). This is your observed burn, not a quota API.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Keys</h2><span class="count" id="keyCount"></span>
+      <div class="spacer"></div>
+      <label class="toggle-inline"><span class="switch"><input type="checkbox" id="reveal" checked /><span class="tr"></span></span>Reveal values</label>
+    </div>
+    <div class="panel">
+      <div class="addbar">
+        <input class="field" id="alias" placeholder="alias — e.g. harbor-4" autocomplete="off" spellcheck="false" />
+        <input class="field mono" id="apikey" placeholder="paste token harbor key…" autocomplete="off" spellcheck="false" />
+        <button class="btn solid" id="add">Add key</button>
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Key</th><th>Status</th><th class="r">Requests</th><th class="r">Tokens</th><th>Last used</th><th style="text-align:right">Actions</th>
+        </tr></thead>
+        <tbody id="keys"></tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Model health</h2><span class="count" id="modelCount"></span>
+      <div class="spacer"></div>
+      <input class="field" id="modelFilter" placeholder="filter models…" style="width:180px" />
+    </div>
+    <div class="panel"><div class="scroll">
+      <table>
+        <thead><tr><th>Model</th><th>Status</th><th class="r">ok / err</th><th class="r">Tokens</th><th>Last used</th></tr></thead>
+        <tbody id="modelHealth"></tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <section class="two-col">
+    <div>
+      <div class="sec-head"><h2>Catalog</h2><div class="spacer"></div><button class="btn sm" id="syncModels">Sync opencode config</button></div>
+      <div class="panel pad">
+        <div id="drift" class="hint">checking…</div>
+        <pre class="snippet" id="syncResult" hidden></pre>
+      </div>
+    </div>
+    <div>
+      <div class="sec-head"><h2>Opencode</h2><div class="spacer"></div><button class="btn sm" id="copy">Copy snippet</button></div>
+      <div class="panel pad">
+        <p class="hint">Custom provider pointed at this router. Model IDs must match Token Harbor's catalog.</p>
+        <pre class="snippet" id="snippet">loading…</pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Log</h2><div class="spacer"></div></div>
+    <div class="panel pad"><div id="logs"></div></div>
+  </section>
+</main>
+
+<footer><div class="in">
+  <span>Runs on localhost.</span><span>Keys live in <code>data/db.json</code> (AES-256-GCM when <code>ROUTER_SECRET</code> is set), bulk-add via <code>data/keys.txt</code>.</span><span>Nothing leaves this machine except upstream API calls.</span>
+</div></footer>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let reveal = true;
+let editingId = null;
+let lastKeys = [];
+let lastModels = [];
+let lastHealth = null;
+
+const savedKey = localStorage.getItem("router-key") || "";
+if (savedKey) $("routerKey").value = savedKey;
+$("routerKey").addEventListener("change", (e) => {
+  const v = e.target.value.trim();
+  if (v) localStorage.setItem("router-key", v); else localStorage.removeItem("router-key");
+  refresh();
+});
+$("reveal").addEventListener("change", (e) => { reveal = e.target.checked; refresh(); });
+
+function headers(extra) {
+  const k = $("routerKey").value.trim();
+  return Object.assign({ "Content-Type": "application/json" }, k ? { "x-router-key": k } : {}, extra || {});
+}
+async function api(path, opts) {
+  opts = opts || {};
+  const r = await fetch(path, Object.assign({}, opts, { headers: headers(opts.headers) }));
+  const t = await r.text();
+  let body = null;
+  try { body = t ? JSON.parse(t) : null; } catch { body = t; }
+  if (r.status === 401) throw new Error("wrong router key — check the field in the top bar");
+  if (!r.ok) throw new Error((body && body.error && (body.error.message || body.error)) || ("HTTP " + r.status));
+  return body;
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function fmtInt(n) { return Number(n || 0).toLocaleString("en-US"); }
+function fmtTok(n) {
+  n = Number(n || 0);
+  if (n < 1000) return String(n);
+  if (n < 1e6) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  return (n / 1e6).toFixed(2).replace(/\.00$/, "") + "M";
+}
+function fmtUsd(n) {
+  n = Number(n || 0);
+  if (n === 0) return "$0";
+  if (n < 0.01) return "$" + n.toFixed(4);
+  if (n < 1) return "$" + n.toFixed(3);
+  return "$" + n.toFixed(2);
+}
+function pct(n) { return Math.round(Number(n || 0) * 100) + "%"; }
+function ago(t) {
+  if (!t) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 10) return "just now";
+  if (s < 60) return s + "s ago";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+}
+function toast(msg, isErr) {
+  const d = document.createElement("div");
+  d.className = "toast" + (isErr ? " err" : "");
+  d.textContent = msg;
+  $("toast").appendChild(d);
+  setTimeout(() => d.remove(), 4200);
+}
+function copyText(t, label) {
+  const done = () => toast((label || "Copied") + " to clipboard");
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, fallback);
+  else fallback();
+  function fallback() {
+    const ta = document.createElement("textarea");
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); } catch { toast("copy failed", true); }
+    ta.remove();
+  }
+}
+
+/* ---------- alerts ---------- */
+function renderAlerts(h) {
+  const box = $("alerts");
+  const items = [];
+  if (h && h.allCooling) {
+    items.push('<div class="alert warn"><strong>Pool exhausted.</strong>All enabled keys are cooling down. Soonest: <code>' +
+      esc(h.soonestAlias || "?") + "</code> in " + (h.soonestEta || 0) + "s.</div>");
+  }
+  if (h && h.keysEnabled === 0 && !h.allCooling) {
+    items.push('<div class="alert err"><strong>No usable keys.</strong>Add one below or enable a disabled key.</div>');
+  }
+  box.innerHTML = items.join("");
+  box.hidden = items.length === 0;
+  if (items.length) document.title = "(!) Agent Router"; else document.title = "Agent Router";
+}
+
+/* ---------- keys ---------- */
+function statusCell(k) {
+  if (!k.enabled) return '<div class="status st-off"><i></i>Off</div>';
+  if (k.invalid) {
+    const revoked = k.lastErrorCode === "invalid_api_key";
+    return '<div class="status st-err"><i></i>' + (revoked ? "Revoked" : "Invalid") + "</div>";
+  }
+  if (k.lastErrorCode === "email_not_verified") {
+    return '<div class="status st-warn"><i></i>Email unverified</div>';
+  }
+  if (k.cooling) return '<div class="status st-warn"><i></i>Cooldown <small>' + k.cooldownSecs + "s</small></div>";
+  return '<div class="status st-ok"><i></i>Ready</div>';
+}
+function keyText(k) {
+  if (k.keyError) return "(locked — set ROUTER_SECRET)";
+  if (!k.key) return "—";
+  if (!reveal) return "••••••••••••••••";
+  return k.key;
+}
+function rowHtml(k) {
+  if (editingId === k.id) {
+    return '<tr class="editing">' +
+      '<td><input class="field" id="eAlias" value="' + esc(k.alias) + '" />' +
+      '<div style="height:6px"></div><input class="field mono" id="eKey" placeholder="new key — leave blank to keep" autocomplete="off" spellcheck="false" /></div></td>' +
+      "<td>" + statusCell(k) + "</td>" +
+      '<td class="r nums">' + fmtInt(k.successCount) + ' <span class="dim">ok</span></td>' +
+      '<td class="r nums">' + fmtTok(k.tokensTotal) + "</td>" +
+      "<td>" + esc(ago(k.lastUsed)) + "</td>" +
+      '<td><div class="actions"><button class="btn sm" data-a="save" data-id="' + k.id + '">Save</button>' +
+      '<button class="btn sm" data-a="cancel">Cancel</button></div></td></tr>';
+  }
+  const total = k.successCount + k.errorCount;
+  const errPct = total ? Math.round((k.errorCount / total) * 100) : 0;
+  const errHtml = k.errorCount
+    ? ' <span class="dim">·</span> <span class="bad">' + fmtInt(k.errorCount) + " err</span>"
+    : "";
+  const cachePct = k.tokensIn ? Math.round((k.tokensCached / k.tokensIn) * 100) : 0;
+  return "<tr>" +
+    '<td><div class="alias">' + esc(k.alias) + "</div>" +
+    '<div class="keyline"><span class="keyval" title="' + esc(k.key || "") + '">' + esc(keyText(k)) + "</span>" +
+    (k.key && !k.keyError ? '<button class="iconbtn" data-a="copy" data-id="' + k.id + '" title="copy key"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>' : "") +
+    "</div></td>" +
+    "<td>" + statusCell(k) +
+    (k.lastError ? '<div class="sub2" title="' + esc(k.lastError) + '">' + esc(k.lastError.length > 40 ? k.lastError.slice(0, 40) + "…" : k.lastError) + "</div>" : "") +
+    "</td>" +
+    '<td class="r nums">' + fmtInt(k.successCount) + ' <span class="dim">ok</span>' + errHtml +
+    (total ? '<div class="meter" style="margin-left:auto"><i style="width:' + errPct + '%"></i></div>' : "") + "</td>" +
+    '<td class="r nums">' + fmtTok(k.tokensTotal) +
+    '<div class="sub2">' + fmtTok(k.tokensIn) + " in · " + fmtTok(k.tokensOut) + " out</div>" +
+    '<div class="sub2">' + fmtTok(k.tokensCached || 0) + " cached · " + cachePct + "%</div></td>" +
+    "<td><div class=\"nums\">" + esc(ago(k.lastUsed)) + "</div>" +
+    (k.lastModel ? '<div class="sub2 mono">' + esc(k.lastModel) + "</div>" : "") + "</td>" +
+    '<td><div class="actions">' +
+    '<label class="switch" title="enable / disable"><input type="checkbox" data-a="toggle" data-id="' + k.id + '"' + (k.enabled ? " checked" : "") + ' /><span class="tr"></span></label>' +
+    '<button class="btn sm" data-a="test" data-id="' + k.id + '">Test</button>' +
+    '<button class="btn sm" data-a="edit" data-id="' + k.id + '">Edit</button>' +
+    '<button class="btn sm" data-a="reset" data-id="' + k.id + '">Reset</button>' +
+    '<button class="btn sm danger" data-a="del" data-id="' + k.id + '">Delete</button>' +
+    "</div></td></tr>";
+}
+
+/* ---------- models ---------- */
+function modelStatus(m) {
+  if (!m.stat) return '<div class="status st-off"><i></i>unused</div>';
+  if (m.stat.lastStatus && m.stat.lastStatus >= 400) return '<div class="status st-err"><i></i>HTTP ' + m.stat.lastStatus + "</div>";
+  if (m.stat.err > 0 && m.stat.ok === 0) return '<div class="status st-err"><i></i>failing</div>';
+  return '<div class="status st-ok"><i></i>ok</div>';
+}
+function freeRow(m) {
+  return "<tr>" +
+    "<td><div class=\"alias\">" + esc(m.id) + "</div>" +
+    '<div class="sub2">' + esc(m.label) + (m.cache ? ' · <span class="badge cache">cache</span>' : "") + "</div></td>" +
+    '<td class="nums">' + (m.context ? fmtTok(m.context) : "?") + "</td>" +
+    '<td class="r nums">' + (m.stat ? fmtInt(m.stat.ok) + " / " + (m.stat.err ? '<span class="bad">' + fmtInt(m.stat.err) + "</span>" : "0") : '<span class="dim">—</span>') +
+    (m.stat && m.stat.lastStatus ? '<div class="sub2">' + m.stat.lastStatus + "</div>" : "") + "</td>" +
+    '<td><div class="actions"><button class="btn sm" data-probe="' + esc(m.id) + '">Probe</button></div></td>' +
+    "</tr>";
+}
+function healthRow(m) {
+  return "<tr>" +
+    "<td><div class=\"alias\">" + esc(m.id) + "</div>" +
+    '<div class="sub2">' + (m.free ? '<span class="badge free">free</span>' : "") + (m.cache ? ' <span class="badge cache">cache</span>' : "") + "</div></td>" +
+    "<td>" + modelStatus(m) +
+    (m.stat && m.stat.lastError ? '<div class="sub2" title="' + esc(m.stat.lastError) + '">' + esc(String(m.stat.lastError).slice(0, 46)) + "</div>" : "") + "</td>" +
+    '<td class="r nums">' + (m.stat ? fmtInt(m.stat.ok) + " / " + (m.stat.err ? '<span class="bad">' + fmtInt(m.stat.err) + "</span>" : "0") : '<span class="dim">—</span>') + "</td>" +
+    '<td class="r nums">' + (m.stat ? fmtTok(m.stat.tokensTotal) + '<div class="sub2">' + fmtTok(m.stat.tokensCached) + " cached</div>" : '<span class="dim">—</span>') + "</td>" +
+    "<td>" + esc(m.stat ? ago(m.stat.lastUsed) : "—") + "</td>" +
+    "</tr>";
+}
+function renderModels() {
+  const free = lastModels.filter((m) => m.free);
+  $("freeCount").textContent = free.length + " available";
+  $("freeModels").innerHTML = free.length
+    ? free.map(freeRow).join("")
+    : '<tr class="empty"><td colspan="4">no free models in the catalog right now</td></tr>';
+
+  const q = $("modelFilter").value.trim().toLowerCase();
+  const shown = lastModels.filter((m) => !q || m.id.toLowerCase().includes(q) || String(m.label).toLowerCase().includes(q));
+  const withTraffic = shown.slice().sort((a, b) => ((b.stat ? b.stat.tokensTotal : 0) - (a.stat ? a.stat.tokensTotal : 0)));
+  $("modelCount").textContent = shown.length + " / " + lastModels.length;
+  $("modelHealth").innerHTML = withTraffic.length
+    ? withTraffic.map(healthRow).join("")
+    : '<tr class="empty"><td colspan="5">no models match</td></tr>';
+}
+function renderAllowance(data) {
+  if (!data) return;
+  $("allowTarget").value = data.target;
+  const keys = data.keys.slice().sort((a, b) => b.today - a.today);
+  $("allowance").innerHTML = keys.length
+    ? keys.map((k) => {
+        const p = Math.min(100, Math.round((k.today / Math.max(1, k.target)) * 100));
+        const cls = p >= 100 ? "" : p >= 70 ? "warn" : "ok";
+        return "<tr><td><span class=\"alias\">" + esc(k.alias) + "</span></td>" +
+          '<td class="nums">' + fmtInt(k.today) + ' <span class="dim">/ ' + fmtInt(k.target) + "</span>" +
+          '<div class="meter ' + cls + '"><i style="width:' + p + '%"></i></div></td>' +
+          '<td class="r nums">' + fmtInt(k.last7d) + "</td></tr>";
+      }).join("")
+    : '<tr class="empty"><td colspan="3">no keys</td></tr>';
+}
+
+/* ---------- refresh ---------- */
+async function refresh() {
+  try {
+    const [health, keys, logs, stats, models, allowance, drift, snippet] = await Promise.all([
+      fetch("/health").then((r) => r.json()),
+      api("/api/keys"),
+      api("/api/logs").catch(() => ({ logs: [] })),
+      api("/api/stats").catch(() => null),
+      api("/api/models").catch(() => ({ models: [] })),
+      api("/api/allowance").catch(() => null),
+      api("/api/catalog/drift").catch(() => null),
+      api("/api/opencode-snippet").catch(() => null),
+    ]);
+    lastHealth = health;
+    lastKeys = keys.keys || [];
+    lastModels = models.models || [];
+
+    $("upstream").textContent = health.upstream;
+    $("keyCount").textContent = health.keysTotal ? health.keysTotal + " total" : "";
+    $("routerKey").disabled = !health.routerAuth;
+    $("routerKey").placeholder = health.routerAuth ? "router key" : "open — no key needed";
+    renderAlerts(health);
+
+    $("stKeys").innerHTML = health.keysAvailable + "<small>/" + health.keysTotal + "</small>";
+    $("stKeysSub").textContent = health.keysTotal ? (health.keysTotal - health.keysAvailable) + " unavailable" : "add a key";
+    $("stReq").textContent = fmtInt(health.totalRequests);
+    const errPct = health.totalRequests ? Math.round((health.totalErrors / health.totalRequests) * 100) : 0;
+    const trimmed = health.trimmedImages || 0;
+    $("stReqSub").textContent = fmtInt(health.totalErrors) + " failed · " + errPct + "%" +
+      (trimmed ? " · " + fmtInt(trimmed) + " imgs trimmed" : "");
+    $("stReqSub").title = trimmed
+      ? trimmed + " screenshots were dropped (oldest first) to keep requests under the upstream size limit."
+      : "No images trimmed so far.";
+
+    const tok = stats ? stats.tokensTotal : 0;
+    $("stTok").textContent = fmtTok(tok);
+    $("stTokSub").textContent = stats ? fmtTok(stats.tokensIn) + " in · " + fmtTok(stats.tokensOut) + " out" : "usage appears after traffic";
+
+    const rate = stats ? stats.cacheHitRate : 0;
+    $("stCache").textContent = pct(rate);
+    $("stCacheSub").textContent = stats ? fmtTok(stats.tokensCached) + " of " + fmtTok(stats.tokensIn) + " in" : "—";
+
+    if (stats) {
+      $("stCost").textContent = fmtUsd(stats.cost.spendUsd);
+      const bits = [];
+      if (stats.cost.savedByCacheUsd > 0) bits.push(fmtUsd(stats.cost.savedByCacheUsd) + " saved by cache");
+      if (stats.cost.freeTokens > 0) bits.push(fmtTok(stats.cost.freeTokens) + " tokens free");
+      if (stats.cost.pricingUnknown) bits.push("some prices unknown");
+      $("stCostSub").textContent = bits.join(" · ") || "no traffic yet";
+      $("stCost").title = "Valued at published list prices; free routes are priced at their paid equivalent (e.g. deepseek-v4.1-flash).";
+    }
+
+    document.querySelectorAll("#seg button").forEach((b) => b.classList.toggle("on", b.dataset.s === health.strategy));
+    $("stStratSub").textContent = health.strategy === "round-robin"
+      ? "spread across keys"
+      : health.strategy === "failover" ? "first healthy key wins" : "avoid flaky keys";
+
+    $("keys").innerHTML = lastKeys.length
+      ? lastKeys.map(rowHtml).join("")
+      : '<tr class="empty"><td colspan="6">No keys yet — paste one above, or add many to <code>data/keys.txt</code> and restart.</td></tr>';
+
+    renderModels();
+    renderAllowance(allowance);
+
+    if (drift) {
+      if (!drift.since) {
+        $("drift").innerHTML = "No sync recorded yet — <code>" + fmtInt(drift.total) + "</code> models in the catalog. Sync to start tracking drift.";
+      } else {
+        const added = drift.added || [], removed = drift.removed || [];
+        $("drift").innerHTML =
+          "Last sync " + esc(ago(drift.since)) + " · <code>" + fmtInt(drift.total) + "</code> models live<br/>" +
+          (added.length ? '<span style="color:var(--green)">+' + added.length + " new:</span> " + esc(added.join(", ")) + "<br/>" : "") +
+          (removed.length ? '<span style="color:var(--red)">−' + removed.length + " retired:</span> " + esc(removed.join(", ")) : "") +
+          (!added.length && !removed.length ? "no changes since last sync" : "");
+      }
+    }
+
+    const colors = { info: "#55555c", warn: "#fbbf24", error: "#f87171" };
+    $("logs").innerHTML = (logs.logs || []).map((l) =>
+      '<div class="ln"><time>' + new Date(l.t).toLocaleTimeString() + "</time>" +
+      '<span class="dot" style="background:' + (colors[l.level] || colors.info) + '"></span>' +
+      '<span class="msg">' + esc(l.msg) + "</span></div>"
+    ).join("") || '<div class="ln"><span class="msg">quiet…</span></div>';
+    if (snippet) $("snippet").textContent = JSON.stringify(snippet.snippet, null, 2);
+
+    $("live").innerHTML = "<i></i>live";
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (/router key/i.test(msg)) {
+      $("alerts").hidden = false;
+      $("alerts").innerHTML = '<div class="alert warn"><strong>Router is locked.</strong>Enter your <code>ROUTER_API_KEY</code> from <code>.env</code> in the top-right field. That is the router password, not a Token Harbor key.</div>';
+      $("live").innerHTML = "<i style='background:var(--amber)'></i>locked";
+    } else {
+      $("live").innerHTML = "<i style='background:var(--red)'></i>error";
+      toast(msg, true);
+    }
+  }
+}
+
+/* ---------- actions ---------- */
+$("refresh").onclick = refresh;
+$("modelFilter").addEventListener("input", renderModels);
+
+$("add").onclick = async () => {
+  const alias = $("alias").value.trim(), key = $("apikey").value.trim();
+  if (!alias || !key) { toast("alias and key are both required", true); return; }
+  try {
+    await api("/api/keys", { method: "POST", body: JSON.stringify({ alias, key }) });
+    $("alias").value = ""; $("apikey").value = "";
+    toast("key added");
+    refresh();
+  } catch (e) { toast(String((e && e.message) || e), true); }
+};
+
+$("seg").onclick = async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    await api("/api/config", { method: "PUT", body: JSON.stringify({ strategy: b.dataset.s }) });
+    refresh();
+  } catch (err) { toast(String((err && err.message) || err), true); }
+};
+
+$("saveAllow").onclick = async () => {
+  const target = Number($("allowTarget").value);
+  try {
+    await api("/api/allowance", { method: "PUT", body: JSON.stringify({ target }) });
+    toast("allowance target saved");
+    refresh();
+  } catch (e) { toast(String((e && e.message) || e), true); }
+};
+
+async function probe(body, label) {
+  toast("probing " + label + "…");
+  try {
+    const r = await api("/api/models/probe", { method: "POST", body: JSON.stringify(body) });
+    const ok = r.results.filter((x) => x.ok).length;
+    const bad = r.results.filter((x) => !x.ok);
+    toast("probe: " + ok + "/" + r.results.length + " ok" + (bad.length ? " — failed: " + bad.map((b) => b.id).join(", ") : ""));
+    if (bad.length) console.warn("probe failures", bad);
+    refresh();
+  } catch (e) { toast(String((e && e.message) || e), true); }
+}
+$("probeFree").onclick = () => probe({ freeOnly: true, limit: 8 }, "free models");
+
+$("freeModels").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-probe]");
+  if (!b) return;
+  probe({ ids: [b.dataset.probe], freeOnly: false }, b.dataset.probe);
+});
+
+$("syncModels").onclick = async () => {
+  const b = $("syncModels");
+  b.disabled = true; b.textContent = "Syncing…";
+  try {
+    const r = await api("/api/sync-models", { method: "POST", body: "{}" });
+    $("syncResult").hidden = false;
+    $("syncResult").textContent =
+      "wrote " + r.path + "\n" +
+      r.total + " models in catalog\n" +
+      r.added + " added · " + r.updated + " updated · " + r.clamped + " clamped\n" +
+      r.removed.length + " pruned" + (r.removed.length ? ": " + r.removed.join(", ") : "");
+    toast("opencode config synced — restart opencode");
+    refresh();
+  } catch (e) { toast(String((e && e.message) || e), true); }
+  finally { b.disabled = false; b.textContent = "Sync opencode config"; }
+};
+
+$("copy").onclick = () => copyText($("snippet").textContent, "Snippet");
+
+$("keys").addEventListener("click", async (e) => {
+  const copyBtn = e.target.closest('[data-a="copy"]');
+  if (copyBtn) {
+    const k = lastKeys.find((x) => x.id === copyBtn.dataset.id);
+    if (k && k.key) copyText(k.key, "Key");
+    return;
+  }
+  const b = e.target.closest("button[data-a]");
+  if (!b) return;
+  const id = b.dataset.id, a = b.dataset.a;
+  try {
+    if (a === "del") {
+      const k = lastKeys.find((x) => x.id === id);
+      if (!confirm('Delete key "' + (k ? k.alias : id) + '"?')) return;
+      await api("/api/keys/" + id, { method: "DELETE" });
+      toast("key deleted");
+    } else if (a === "test") {
+      b.disabled = true; b.textContent = "…";
+      const r = await api("/api/keys/" + id + "/test", { method: "POST", body: "{}" });
+      toast(r.ok ? "OK — " + (r.models != null ? r.models + " models" : "reachable") : "FAIL " + (r.status || "") + " " + (r.error || ""));
+    } else if (a === "reset") {
+      await api("/api/keys/" + id, { method: "PATCH", body: JSON.stringify({ reset: true }) });
+      toast("cooldown cleared");
+    } else if (a === "edit") {
+      editingId = id;
+      refresh(); return;
+    } else if (a === "cancel") {
+      editingId = null; refresh(); return;
+    } else if (a === "save") {
+      const alias = ($("eAlias") || {}).value || "";
+      const key = ($("eKey") || {}).value || "";
+      const body = {};
+      if (alias.trim()) body.alias = alias.trim();
+      if (key.trim()) body.key = key.trim();
+      if (!body.alias && !body.key) { editingId = null; refresh(); return; }
+      await api("/api/keys/" + id, { method: "PATCH", body: JSON.stringify(body) });
+      editingId = null;
+      toast("key updated");
+    }
+  } catch (err) { toast(String((err && err.message) || err), true); }
+  refresh();
+});
+
+$("keys").addEventListener("change", async (e) => {
+  const t = e.target.closest('input[data-a="toggle"]');
+  if (!t) return;
+  try {
+    await api("/api/keys/" + t.dataset.id, { method: "PATCH", body: JSON.stringify({ enabled: t.checked }) });
+  } catch (err) { toast(String((err && err.message) || err), true); }
+  refresh();
+});
+
+refresh();
+setInterval(() => { if (!document.hidden && !editingId) refresh(); }, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "agent-router",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal Token Harbor key-rotating proxy (OpenAI-compatible) for opencode & other harnesses",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "serve": "node dist/server.js",
+    "sync-models": "tsx scripts/sync-models.ts"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}
